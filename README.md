@@ -21,7 +21,7 @@ SFilter-OpenVPN is a script that automatically whitelists people who connect to 
 
 ## Recommendations
 
-Locate the `push` line in your `server.conf` file and replace it with the following line to only allow TUN traffic:
+Locate the `push` line in your `server.conf` file and replace it with the following line to only allow TUN traffic (credits to toxicj for this):
 
 ```conf
 push "redirect-gateway def1 bypass-dhcp"
