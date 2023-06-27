@@ -14,6 +14,10 @@ SFilter-OpenVPN is a script that automatically whitelists people who connect to 
    ```conf
    status openvpn-status.log 2
    ```
+3. Restart the openvpn service.
+   ```
+   sudo systemctl restart openvpn-server@server.service
+   ```
 
 ## Recommendations
 
