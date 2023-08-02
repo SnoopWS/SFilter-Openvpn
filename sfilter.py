@@ -57,7 +57,7 @@ def edit_openvpn_server_conf(file_path, old_line, new_line):
 old_line = 'push "redirect-gateway ipv6 def1 bypass-dhcp"\n'
 new_line = 'push "redirect-gateway def1 bypass-dhcp"\n'
 
-edit_openvpn_server_conf("/etc/openvpn/server.conf", old_line, new_line)
+edit_openvpn_server_conf("/etc/openvpn/server/server.conf", old_line, new_line)
 
 if not os.path.exists(OPENVPN_STATUS_LOG):
     try:
