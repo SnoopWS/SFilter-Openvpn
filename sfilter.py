@@ -11,12 +11,6 @@ CHECK_INTERVAL = 1
 BLOCK_DURATION = 60
 CLIENTS_FILE = "clients.txt"
 set_name = "allowed_clients"
-openvpn_protocol = "tcp" # make sure the protocol is in commas or it won't work
-
-protocols = [
-    "tcp",
-    "udp"
-]
 
 if openvpn_protocol in protocols:
         pass
@@ -126,14 +120,34 @@ def save_ips_to_clients_file(ips):
     with open(CLIENTS_FILE, "a") as f:
         for ip in ips:
             f.write(f"{ip}\n")
-            
+                        
 def block_port():
     #subprocess.run(["sudo", "iptables", "-I", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
-    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t". "raw", "-I", "PREROUTING", "-m" "rpfilter", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "conntrack", "--ctstate", "ESTABLISHED,UNTRACKED", "-m", "recent", "--rcheck", "--seconds", "3", "--name", "bad_conn", "--mask", "255.255.255.255", "--rsource", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-s", "10.8.0.0/24", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "udp", "-m", "udp", "--dport", "22", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "80", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "443", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--sport", "80", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--sport", "443", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "udp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
 
 def unblock_port():
     #subprocess.run(["sudo", "iptables", "-D", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
-    subprocess.run(["sudo", "iptables", "-D", "raw", "-I", "PREROUTING", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "conntrack", "--ctstate", "ESTABLISHED,UNTRACKED", "-m", "recent", "--rcheck", "--seconds", "3", "--name", "bad_conn", "--mask", "255.255.255.255", "--rsource", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t". "raw", "-D", "PREROUTING", "-m" "rpfilter", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-s", "10.8.0.0/24", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "udp", "-m", "udp", "--dport", "22", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "80", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "443", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--sport", "80", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--sport", "443", "--tcp-flags", "FIN,SYN,RST,ACK SYN", "-m", "state", "--state", "NEW", "-m", "limit", "--limit", "8/sec", "--limit-burst", "5", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "udp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
 
 def is_openvpn_process(process):
     return "openvpn" in process.name().lower()
@@ -148,7 +162,7 @@ def unblock_openvpn_port():
     if is_openvpn_running():
         unblock_port()
     else:
-        block_port()
+        unblock_port()
 
 def get_connections_on_port(port):
     connections = 0
