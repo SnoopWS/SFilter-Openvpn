@@ -5,7 +5,7 @@ import psutil
 import socket
 
 MAX_CONNECTIONS = 30
-OPENVPN_STATUS_LOG = "/etc/openvpn/server/openvpn-status.log"
+OPENVPN_STATUS_LOG = "/etc/openvpn/server/openvpn-status.log" 
 OPENVPN_PORT = 1194
 CHECK_INTERVAL = 1
 BLOCK_DURATION = 60
@@ -23,41 +23,36 @@ if openvpn_protocol in protocols:
 else:
     print(f"OpenVPN Protocol: {openvpn_protocol} is not in the list.")
 
-def edit_openvpn_server_conf(file_path, old_line, new_line):
-    # Check if the file exists
-    if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' does not exist.")
-        return
+def edit_openvpn_server_conf(old_line, new_line):
+    server_conf_locations = [
+        "/etc/openvpn/server/server.conf",
+        "/etc/openvpn/server.conf"
+    ]
 
-    # Read the file and store the lines in a list
-    with open(file_path, "r") as f:
-        lines = f.readlines()
+    for file_path in server_conf_locations:
+        try:
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            continue
 
-    # Check if the line has already been changed
-    if old_line in lines:
-        print("The line has already been changed.")
-        return
+        found = False
+        with open(file_path, 'w') as f:
+            for line in lines:
+                if line.strip() == old_line:
+                    f.write(new_line + '\n')
+                    found = True
+                else:
+                    f.write(line)
 
-    # Find and replace the old line with the new line
-    modified_lines = []
-    for line in lines:
-        if line.strip() == old_line.strip():
-            modified_lines.append(new_line + "\n")
-        else:
-            modified_lines.append(line)
+        if found:
+            return
 
-    # Write the modified lines back to the file
-    with open(file_path, "w") as f:
-        f.writelines(modified_lines)
+# Example usage:
+old_line = "push \"redirect-gateway ipv6 def1 bypass-dhcp\""
+new_line = "push \"redirect-gateway def1 bypass-dhcp\""
+edit_openvpn_server_conf(old_line, new_line)
 
-
-    return
-
-# Usage example:
-old_line = 'push "redirect-gateway ipv6 def1 bypass-dhcp"\n'
-new_line = 'push "redirect-gateway def1 bypass-dhcp"\n'
-
-edit_openvpn_server_conf("/etc/openvpn/server/server.conf", old_line, new_line)
 
 if not os.path.exists(OPENVPN_STATUS_LOG):
     try:
@@ -94,7 +89,7 @@ def check_ipset_exists(set_name):
 
 def create_ipset():
     if not check_ipset_exists(set_name):
-        subprocess.run(["sudo", "ipset", "create", set_name, "hash:ip"])
+        subprocess.run(["sudo", "ipset", "create", set_name, "hash:ip", "timeout", "0"])
         print("The ipset has been created successfully. Restart the script")
     else:
         # If the ipset already exists, you can either skip creating it or delete and recreate it.
@@ -113,7 +108,7 @@ def read_clients_file():
 def update_ipset(clients_ips):
     subprocess.run(["sudo", "ipset", "flush", "allowed_clients"])
     for ip in clients_ips:
-        subprocess.run(["sudo", "ipset", "add", "allowed_clients", ip])
+        subprocess.run(["sudo", "ipset", "add", set_name, "timeout", "10"])
 
 def read_openvpn_status_log():
     with open(OPENVPN_STATUS_LOG, "r") as f:
@@ -131,12 +126,29 @@ def save_ips_to_clients_file(ips):
     with open(CLIENTS_FILE, "a") as f:
         for ip in ips:
             f.write(f"{ip}\n")
-
+            
 def block_port():
-    subprocess.run(["sudo", "iptables", "-I", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    #subprocess.run(["sudo", "iptables", "-I", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
 
 def unblock_port():
-    subprocess.run(["sudo", "iptables", "-D", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    #subprocess.run(["sudo", "iptables", "-D", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-D", "raw", "-I", "PREROUTING", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+
+def is_openvpn_process(process):
+    return "openvpn" in process.name().lower()
+
+def is_openvpn_running():
+    for process in psutil.process_iter(['name']):
+        if is_openvpn_process(process):
+            return True
+    return False
+
+def unblock_openvpn_port():
+    if is_openvpn_running():
+        unblock_port()
+    else:
+        block_port()
 
 def get_connections_on_port(port):
     connections = 0
