@@ -11,17 +11,8 @@ CHECK_INTERVAL = 1
 BLOCK_DURATION = 60
 CLIENTS_FILE = "clients.txt"
 set_name = "allowed_clients"
-openvpn_protocol = "tcp" # make sure the protocol is in commas or it won't work
-
-protocols = [
-    "tcp",
-    "udp"
-]
-
-if openvpn_protocol in protocols:
-        pass
-else:
-    print(f"OpenVPN Protocol: {openvpn_protocol} is not in the list.")
+set_name2 = "allow"
+set_name3 = "check"
 
 def edit_openvpn_server_conf(old_line, new_line):
     server_conf_locations = [
@@ -82,7 +73,12 @@ def add_openvpn_status_line_to_config(file_path):
     
 def check_ipset_exists(set_name):
     try:
+        print("")
         subprocess.run(["sudo", "ipset", "list", set_name], check=True)
+        print("")
+        subprocess.run(["sudo", "ipset", "list", set_name2], check=True)
+        print("")
+        subprocess.run(["sudo", "ipset", "list", set_name3], check=True)
         return True
     except subprocess.CalledProcessError:
         return False
@@ -90,6 +86,8 @@ def check_ipset_exists(set_name):
 def create_ipset():
     if not check_ipset_exists(set_name):
         subprocess.run(["sudo", "ipset", "create", set_name, "hash:ip", "timeout", "0"])
+        subprocess.run(["sudo", "ipset", "create", set_name2, "hash:ip", "timeout", "0"])
+        subprocess.run(["sudo", "ipset", "create", set_name3, "hash:ip", "timeout", "0"])
         print("The ipset has been created successfully. Restart the script")
     else:
         # If the ipset already exists, you can either skip creating it or delete and recreate it.
@@ -109,6 +107,8 @@ def update_ipset(clients_ips):
     subprocess.run(["sudo", "ipset", "flush", "allowed_clients"])
     for ip in clients_ips:
         subprocess.run(["sudo", "ipset", "add", set_name, "timeout", "10"])
+        subprocess.run(["sudo", "ipset", "add", set_name2, "timeout", "10"])
+        subprocess.run(["sudo", "ipset", "add", set_name3, "timeout", "10"])
 
 def read_openvpn_status_log():
     with open(OPENVPN_STATUS_LOG, "r") as f:
@@ -126,14 +126,53 @@ def save_ips_to_clients_file(ips):
     with open(CLIENTS_FILE, "a") as f:
         for ip in ips:
             f.write(f"{ip}\n")
-            
+                        
 def block_port():
     #subprocess.run(["sudo", "iptables", "-I", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
-    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    # Stop Spoofed Attacks
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-m" "rpfilter", "-j", "ACCEPT"])
+    # Drop Established Connections After 3 Seconds
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "conntrack", "--ctstate", "ESTABLISHED,UNTRACKED", "-m", "recent", "--rcheck", "--seconds", "3", "--name", "bad_conn", "--mask", "255.255.255.255", "--rsource", "-j", "DROP"])
+    # Drop Everything
+    subprocess.run(["iptables", "-t", "mangle", "-P", "PREROUTING", "DROP"])
+    # SSH Whitelist
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-s", "10.8.0.0/24", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "udp", "-m", "udp", "--dport", "22", "-j", "DROP"])
+    # Openvpn Shit
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "udp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    # Ipset Shit
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-m", "bpf", "--bytecode", "19,48 0 0 0,84 0 0 240,21 0 4 96,48 0 0 6,21 0 13 6,40 0 0 42,21 10 11 1194,48 0 0 0,84 0 0 240,21 0 8 64,48 0 0 9,21 0 6 6,40 0 0 6,69 4 0 8191,177 0 0 0,72 0 0 2,21 0 1 1194,6 0 0 262144,6 0 0 0", "-m", "conntrack", "--ctstate", "ESTABLISHED", "-m", "connbytes", "--connbytes", "100", "--connbytes-mode", "packets", "--connbytes-dir", "reply", "-j", "SET", "--add-set", "allow", "src"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-I", "PREROUTING", "-p", "tcp", "-m", "bpf", "--bytecode", "30,48 0 0 0,84 0 0 240,21 26 0 96,48 0 0 0,84 0 0 240,21 0 23 64,48 0 0 9,21 0 21 6,40 0 0 6,69 19 0 8191,177 0 0 0,72 0 0 2,21 0 16 1194,40 0 0 2,53 0 14 96,37 13 0 110,80 0 0 13,21 0 11 24,72 0 0 14,37 9 0 7000,80 0 0 22,21 0 2 56,64 0 0 32,21 4 0 356,80 0 0 34,21 0 3 56,64 0 0 44,21 0 1 356,6 0 0 65535,6 0 0 0", "-j", "SET", "--add-set", "check", "src"])
+    # Allow ESTABLISHED Connections
+    subprocess.run(["sudo", "iptables", "-t", "mangle", "-A", "PREROUTING", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+    # DROP Everything
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-A", "PREROUTING", "-j", "DROP"])
 
 def unblock_port():
     #subprocess.run(["sudo", "iptables", "-D", "INPUT", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
-    subprocess.run(["sudo", "iptables", "-D", "raw", "-I", "PREROUTING", "-p", openvpn_protocol, "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    # Stop Spoofed Attacks
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-m" "rpfilter", "-j", "ACCEPT"])
+    # Drop ESTABLISHED After 3 Seconds
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "conntrack", "--ctstate", "ESTABLISHED,UNTRACKED", "-m", "recent", "--rcheck", "--seconds", "3", "--name", "bad_conn", "--mask", "255.255.255.255", "--rsource", "-j", "DROP"])
+    # Drop Everything
+    subprocess.run(["iptables", "-t", "mangle", "-P", "PREROUTING", "DROP"])
+    # SSH Whitelist
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-s", "10.8.0.0/24", "-j", "ACCEPT"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "tcp", "--dport", "22", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "udp", "-m", "udp", "--dport", "22", "-j", "DROP"]) 
+    # Openvpn Shit
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "udp", "--dport", str(OPENVPN_PORT), "-m", "set", "!", "--match-set", "allowed_clients", "src", "-j", "DROP"])
+    # Ipset Check
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-m", "bpf", "--bytecode", "19,48 0 0 0,84 0 0 240,21 0 4 96,48 0 0 6,21 0 13 6,40 0 0 42,21 10 11 1194,48 0 0 0,84 0 0 240,21 0 8 64,48 0 0 9,21 0 6 6,40 0 0 6,69 4 0 8191,177 0 0 0,72 0 0 2,21 0 1 1194,6 0 0 262144,6 0 0 0", "-m", "conntrack", "--ctstate", "ESTABLISHED", "-m", "connbytes", "--connbytes", "100", "--connbytes-mode", "packets", "--connbytes-dir", "reply", "-j", "SET", "--add-set", "allow", "src"])
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-D", "PREROUTING", "-p", "tcp", "-m", "bpf", "--bytecode", "30,48 0 0 0,84 0 0 240,21 26 0 96,48 0 0 0,84 0 0 240,21 0 23 64,48 0 0 9,21 0 21 6,40 0 0 6,69 19 0 8191,177 0 0 0,72 0 0 2,21 0 16 1194,40 0 0 2,53 0 14 96,37 13 0 110,80 0 0 13,21 0 11 24,72 0 0 14,37 9 0 7000,80 0 0 22,21 0 2 56,64 0 0 32,21 4 0 356,80 0 0 34,21 0 3 56,64 0 0 44,21 0 1 356,6 0 0 65535,6 0 0 0", "-j", "SET", "--add-set", "check", "src"])
+    # Allow ESTABLISHED Connections
+    subprocess.run(["sudo", "iptables", "-t", "mangle", "-A", "PREROUTING", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+    # DROP Everything
+    subprocess.run(["sudo", "iptables", "-t", "raw", "-A", "PREROUTING", "-j", "DROP"])
+
 
 def is_openvpn_process(process):
     return "openvpn" in process.name().lower()
@@ -148,7 +187,7 @@ def unblock_openvpn_port():
     if is_openvpn_running():
         unblock_port()
     else:
-        block_port()
+        unblock_port()
 
 def get_connections_on_port(port):
     connections = 0
